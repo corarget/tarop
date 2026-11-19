@@ -1,0 +1,47 @@
+{
+	"name": "tarop",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "cf dev --mode development",
+		"build": "cf build",
+		"deploy": "cf deploy",
+		"check": "cf workers types && vp check",
+		"format": "vp fmt",
+		"test": "vp test",
+		"test:watch": "vp test --watch",
+		"typecheck": "cf workers types && vp check --no-fmt --no-lint",
+		"db:migrate:local": "cf d1 migrations apply 11111111-1111-4111-8111-111111111111 --local --mode development",
+		"db:migrate:remote": "cf d1 migrations apply \"$D1_DATABASE_ID\""
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^2.0.0-rc.0",
+		"@cloudflare/vitest-plugin": "^1.8.5",
+		"cf": "^1.0.0-rc.2",
+		"typescript": "^7.0.2",
+		"vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+		"vite-plus": "1.4.0",
+		"vitest": "5.0.5"
+	},
+	"overrides": {
+		"vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+		"vitest": "5.0.5"
+	},
+	"engines": {
+		"node": "^22.23.0 || ^24.22.0 || ^26.12.0"
+	},
+	"cloudflare": {
+		"bindings": {
+			"TELEGRAM_BOT_TOKEN": {
+				"description": "Токен Telegram-бота от BotFather. Хранить как secret."
+			},
+			"TELEGRAM_WEBHOOK_SECRET": {
+				"description": "Случайный секрет для проверки входящих Telegram webhook."
+			},
+			"AI_API_KEY": {
+				"description": "Ключ OpenAI-совместимого API. В mock-режиме может быть пустым локально."
+			}
+		}
+	}
+}
