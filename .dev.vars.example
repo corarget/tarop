@@ -2,6 +2,6 @@
 TELEGRAM_BOT_TOKEN="replace-with-botfather-token"
 TELEGRAM_WEBHOOK_SECRET="replace-with-random-secret"
 
-# В AI_MODE=mock ключ не используется, но binding объявлен для типизации.
-AI_API_KEY="replace-only-when-using-real-ai"
+# Нужен только в AI_MODE=openai-compatible.
+AI_API_KEY="replace-only-when-using-openai-compatible"
 
