@@ -16,10 +16,11 @@ export default defineConfig(({ mode }) => ({
 			TELEGRAM_BOT_TOKEN: bindings.secret(),
 			TELEGRAM_WEBHOOK_SECRET: bindings.secret(),
 			AI_API_KEY: bindings.secret(),
-			AI_MODE: bindings.text("mock"),
+			AI: mode === "production" ? bindings.ai() : bindings.json(null),
+			AI_MODE: bindings.text(mode === "production" ? "workers-ai" : "mock"),
 			AI_BASE_URL: bindings.text("https://api.openai.com/v1"),
 			AI_MODEL: bindings.text("gpt-4.1-mini"),
-			FREE_READING_LIMIT: bindings.text("1"),
+			FREE_READING_LIMIT: bindings.text(mode === "production" ? "6" : "1"),
 			TEST_TELEGRAM_IDS: bindings.text(""),
 		},
 		observability: {

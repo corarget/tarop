@@ -1,8 +1,8 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vite-plus/test";
 import { Repository } from "../src/db/repository";
-import type { AiInterpreter } from "../src/llm/types";
-import type { TelegramMessenger } from "../src/telegram/client";
+import type { AiInterpreter, InterpretationInput, QuestionInput } from "../src/llm/types";
+import type { CardPhoto, TelegramMessenger } from "../src/telegram/client";
 import { TelegramUpdateHandler } from "../src/telegram/handler";
 import type { InlineKeyboardMarkup, TelegramUpdate } from "../src/telegram/types";
 
@@ -15,6 +15,7 @@ interface SentMessage {
 class FakeTelegram implements TelegramMessenger {
 	readonly messages: SentMessage[] = [];
 	readonly answeredCallbacks: string[] = [];
+	readonly albums: (readonly CardPhoto[])[] = [];
 
 	async sendMessage(
 		chatId: number,
@@ -31,10 +32,31 @@ class FakeTelegram implements TelegramMessenger {
 	async answerCallbackQuery(callbackQueryId: string): Promise<void> {
 		this.answeredCallbacks.push(callbackQueryId);
 	}
+
+	async sendSpreadCover(
+		chatId: number,
+		caption: string,
+		keyboard: InlineKeyboardMarkup,
+	): Promise<void> {
+		await this.sendMessage(chatId, caption, keyboard);
+	}
+
+	async sendCardAlbum(_chatId: number, cards: readonly CardPhoto[]): Promise<void> {
+		this.albums.push(cards);
+	}
+
+	async removeKeyboard(): Promise<void> {}
 }
 
 class FakeAi implements AiInterpreter {
-	async interpret(): Promise<string> {
+	readonly calls: InterpretationInput[] = [];
+
+	async clarify(input: QuestionInput): Promise<string> {
+		return input.topic.id === "relationships" ? "Что произошло перед вашей паузой?" : "";
+	}
+
+	async interpret(input: InterpretationInput): Promise<string> {
+		this.calls.push(input);
 		return "Тестовая интерпретация трёх карт.";
 	}
 }
@@ -77,7 +99,8 @@ describe("Telegram MVP flow", () => {
 	it("selects a persona and topic, stores a reading, then enforces the limit", async () => {
 		const repository = new Repository(env.DB);
 		const telegram = new FakeTelegram();
-		const handler = new TelegramUpdateHandler(repository, telegram, new FakeAi(), {
+		const ai = new FakeAi();
+		const handler = new TelegramUpdateHandler(repository, telegram, ai, {
 			freeReadingLimit: 1,
 			testTelegramIds: new Set(),
 		});
@@ -86,6 +109,20 @@ describe("Telegram MVP flow", () => {
 		await handler.handle(callbackUpdate(102, "persona:mira"));
 		await handler.handle(callbackUpdate(103, "topic:relationships"));
 		await handler.handle(messageUpdate(104, "Что мне важно понять об этих отношениях сейчас?"));
+		expect(telegram.messages.at(-1)?.text).toBe("Что произошло перед вашей паузой?");
+		expect(ai.calls).toHaveLength(0);
+		await handler.handle(messageUpdate(105, "Мы перестали разговаривать после ссоры."));
+		const active = await repository.getUserByTelegramId(String(telegramUser.id));
+		const draft = JSON.parse(active?.draft_json ?? "{}");
+		const selected = telegram.messages.at(-1)?.replyMarkup?.inline_keyboard[0]?.[1]?.callback_data;
+		expect(selected).toBe(`open:${draft.id}:1`);
+		expect(ai.calls).toHaveLength(0);
+		await handler.handle(callbackUpdate(106, selected ?? ""));
+		await handler.handle(callbackUpdate(107, selected ?? ""));
+		expect(ai.calls).toHaveLength(1);
+		expect(ai.calls[0]?.context).toBe("Мы перестали разговаривать после ссоры.");
+		expect(ai.calls[0]?.question).toBe("Что мне важно понять об этих отношениях сейчас?");
+		expect(ai.calls[0]?.cards[0]?.card.id).toBe(draft.cards[1].card.id);
 
 		const user = await repository.getUserByTelegramId(String(telegramUser.id));
 		expect(user).not.toBeNull();
@@ -96,9 +133,10 @@ describe("Telegram MVP flow", () => {
 		expect(history[0]?.persona_id).toBe("mira");
 		expect(history[0]?.topic).toBe("relationships");
 		expect(history[0]?.result_text).toContain("Тестовая интерпретация");
-		expect(telegram.messages.some((message) => message.text.includes("Ваши карты"))).toBe(true);
+		expect(telegram.albums[0]).toHaveLength(3);
+		expect(telegram.albums[0]?.[0]?.caption).toContain("Главное");
 
-		await handler.handle(messageUpdate(105, "/new"));
+		await handler.handle(messageUpdate(108, "/new"));
 		expect(telegram.messages.at(-1)?.text).toContain("Бесплатный лимит исчерпан");
 	});
 

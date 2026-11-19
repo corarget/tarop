@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { orderCardNotes } from "../src/llm/prompt";
 import { MAJOR_ARCANA } from "../src/tarot/cards";
 import { drawThreeCards } from "../src/tarot/draw";
 import { splitTelegramText } from "../src/text";
@@ -27,6 +28,18 @@ describe("tarot deck", () => {
 });
 
 describe("Telegram text", () => {
+	it("keeps the direct answer and puts card notes in the displayed order", () => {
+		const cards = drawThreeCards(() => 0);
+		expect(
+			orderCardNotes(
+				"Я бы подождала.\n\nМаг — уточните детали. Шут — не торопитесь. Верховная Жрица — оставьте паузу.",
+				cards,
+			),
+		).toBe(
+			"Я бы подождала.\n\nШут — не торопитесь.\n\nМаг — уточните детали.\n\nВерховная Жрица — оставьте паузу.",
+		);
+	});
+
 	it("splits long interpretations below the Telegram limit", () => {
 		const chunks = splitTelegramText("Абзац\n\n".repeat(1_000));
 		expect(chunks.length).toBeGreaterThan(1);

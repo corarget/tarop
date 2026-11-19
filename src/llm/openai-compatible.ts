@@ -1,3 +1,4 @@
+import { createInterpretationMessages } from "./prompt";
 import type { AiInterpreter, InterpretationInput } from "./types";
 
 interface ChatCompletionResponse {
@@ -6,27 +7,6 @@ interface ChatCompletionResponse {
 			content?: string | null;
 		};
 	}>;
-}
-
-function createSystemPrompt(input: InterpretationInput): string {
-	return [
-		`Ты — виртуальная таро-консультантка ${input.persona.name}.`,
-		input.persona.stylePrompt,
-		"Пиши по-русски. Таро используется как инструмент самоанализа, а не как достоверное предсказание.",
-		"Не утверждай факты о будущем, чужих мыслях, здоровье, праве или финансах. Не усиливай тревогу и не обещай результат.",
-		"Структура ответа: короткое вступление; разбор каждой из трёх карт; общий смысл; один аккуратный практический вывод.",
-		"Используй только переданные карты и значения. Не добавляй другие карты. Максимум 2800 символов.",
-	].join(" ");
-}
-
-function createUserPrompt(input: InterpretationInput): string {
-	const cards = input.cards
-		.map(
-			(drawn, index) => `${index + 1}. ${drawn.card.name} (${drawn.orientation}): ${drawn.meaning}`,
-		)
-		.join("\n");
-
-	return `Тема: ${input.topic.label}\nВопрос: ${input.question}\n\nКарты:\n${cards}`;
 }
 
 export class OpenAiCompatibleInterpreter implements AiInterpreter {
@@ -47,10 +27,7 @@ export class OpenAiCompatibleInterpreter implements AiInterpreter {
 				model: this.model,
 				temperature: 0.8,
 				max_tokens: 900,
-				messages: [
-					{ role: "system", content: createSystemPrompt(input) },
-					{ role: "user", content: createUserPrompt(input) },
-				],
+				messages: createInterpretationMessages(input),
 			}),
 			signal: AbortSignal.timeout(25_000),
 		});
