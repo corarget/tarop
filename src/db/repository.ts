@@ -3,7 +3,22 @@ import type { DrawnCard } from "../tarot/draw";
 import type { TopicId } from "../topics";
 import type { TelegramUser } from "../telegram/types";
 
-export type ConversationState = "selecting_persona" | "selecting_topic" | "awaiting_question";
+export type ConversationState =
+	| "selecting_persona"
+	| "selecting_topic"
+	| "awaiting_question"
+	| "awaiting_context"
+	| "awaiting_card"
+	| "reading";
+
+export interface ReadingDraft {
+	id: string;
+	question: string;
+	questionUpdateId: number;
+	context?: string;
+	contextUpdateId?: number;
+	cards?: readonly DrawnCard[];
+}
 
 export interface UserRecord {
 	id: string;
@@ -12,6 +27,8 @@ export interface UserRecord {
 	selected_persona_id: string | null;
 	selected_topic: string | null;
 	state: ConversationState;
+	draft_json: string | null;
+	draft_update_id: number | null;
 }
 
 export interface ReadingRecord {
@@ -133,7 +150,7 @@ export class Repository {
 		return this.database
 			.prepare(
 				`SELECT id, telegram_id, first_name, selected_persona_id,
-				        selected_topic, state
+				        selected_topic, state, draft_json, draft_update_id
 				 FROM users WHERE telegram_id = ?`,
 			)
 			.bind(telegramId)
@@ -144,7 +161,7 @@ export class Repository {
 		await this.database
 			.prepare(
 				`UPDATE users
-				 SET selected_persona_id = ?, selected_topic = NULL,
+				 SET selected_persona_id = ?, selected_topic = NULL, draft_json = NULL, draft_update_id = NULL,
 				     state = 'selecting_topic', updated_at = CURRENT_TIMESTAMP
 				 WHERE id = ?`,
 			)
@@ -156,7 +173,7 @@ export class Repository {
 		await this.database
 			.prepare(
 				`UPDATE users
-				 SET selected_topic = ?, state = 'awaiting_question',
+				 SET selected_topic = ?, state = 'awaiting_question', draft_json = NULL, draft_update_id = NULL,
 				     updated_at = CURRENT_TIMESTAMP
 				 WHERE id = ?`,
 			)
@@ -168,11 +185,58 @@ export class Repository {
 		await this.database
 			.prepare(
 				`UPDATE users
-				 SET selected_persona_id = NULL, selected_topic = NULL,
+				 SET selected_persona_id = NULL, selected_topic = NULL, draft_json = NULL, draft_update_id = NULL,
 				     state = 'selecting_persona', updated_at = CURRENT_TIMESTAMP
 				 WHERE id = ?`,
 			)
 			.bind(userId)
+			.run();
+	}
+
+	async createDraft(user: UserRecord, draft: ReadingDraft): Promise<boolean> {
+		return wasChanged(
+			await this.database
+				.prepare(
+					`UPDATE users SET draft_json = ?, state = 'awaiting_context'
+			 WHERE id = ? AND state = 'awaiting_question' AND selected_persona_id = ? AND selected_topic = ?`,
+				)
+				.bind(JSON.stringify(draft), user.id, user.selected_persona_id, user.selected_topic)
+				.run(),
+		);
+	}
+
+	async prepareDraft(userId: string, draft: ReadingDraft): Promise<boolean> {
+		return wasChanged(
+			await this.database
+				.prepare(
+					`UPDATE users SET draft_json = ?, state = 'awaiting_card'
+			 WHERE id = ? AND state = 'awaiting_context' AND json_extract(draft_json, '$.id') = ?`,
+				)
+				.bind(JSON.stringify(draft), userId, draft.id)
+				.run(),
+		);
+	}
+
+	async claimDraft(userId: string, draftId: string, updateId: number): Promise<boolean> {
+		return wasChanged(
+			await this.database
+				.prepare(
+					`UPDATE users SET state = 'reading', draft_update_id = ?
+			 WHERE id = ? AND json_extract(draft_json, '$.id') = ?
+			   AND (state = 'awaiting_card' OR (state = 'reading' AND draft_update_id = ?))`,
+				)
+				.bind(updateId, userId, draftId, updateId)
+				.run(),
+		);
+	}
+
+	async returnDraft(userId: string, updateId: number): Promise<void> {
+		await this.database
+			.prepare(
+				`UPDATE users SET state = 'awaiting_card', draft_update_id = NULL
+			 WHERE id = ? AND state = 'reading' AND draft_update_id = ?`,
+			)
+			.bind(userId, updateId)
 			.run();
 	}
 
@@ -214,6 +278,7 @@ export class Repository {
 		personaId: PersonaId;
 		topic: TopicId;
 		question: string;
+		context?: string;
 		cards: readonly DrawnCard[];
 		telegramUpdateId: number;
 	}): Promise<ReadingRecord> {
@@ -240,7 +305,11 @@ export class Repository {
 					`INSERT INTO messages (id, reading_id, role, content)
 					 VALUES (?, ?, 'user', ?)`,
 				)
-				.bind(crypto.randomUUID(), id, input.question),
+				.bind(
+					crypto.randomUUID(),
+					id,
+					input.context ? `${input.question}\n\nДетали: ${input.context}` : input.question,
+				),
 		]);
 
 		const reading = await this.getReadingByUpdate(input.telegramUpdateId);
